@@ -16,7 +16,28 @@
   （exe + yaml + shp_input + output）拷到任何盘符都能用。
 - 性能：使用 `shapely.contains_xy` 向量化点-面包含判定，万级点位毫秒级。
 
-## 在 Windows 上打包成 exe
+## 用 GitHub Actions 在云端打包 Windows exe（推荐）
+
+不用自己装 Windows / Python 也能拿到 exe：
+
+1. 把仓库推到 GitHub。
+2. 进入仓库 → **Actions** 标签页 → 选 `Build Windows EXE` → **Run workflow**，等待跑完即可。
+3. 跑完后在该次运行的 *Artifacts* 区域下载 `shp-buffer-tool-windows.zip`，里面包含：
+   - `shp-buffer-tool.exe`
+   - `gui_config.example.yaml`
+   - 空的 `shp_input/`、`output/` 目录
+   - `使用说明.txt`
+
+如果想正式发布，给一次提交打 tag 即可自动创建 Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+workflow 会把同一个 zip 作为 Release 资产上传，普通用户在 Releases 页面直接下载就能用。
+
+## 在 Windows 上本地打包成 exe
 
 所有命令都在 `shp_buffer_tool/` 目录下执行：
 

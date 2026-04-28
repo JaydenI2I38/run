@@ -1,0 +1,101 @@
+name: Build Windows EXE
+
+# 触发条件：
+#   - 推送到 main / master 分支自动构建
+#   - 手动触发（workflow_dispatch）
+#   - 推送 v* 标签时构建并发布 Release
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      onefile:
+        description: "单 exe (onefile)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on windows-latest
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build EXE (onefile)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.onefile }}
+        shell: pwsh
+        run: |
+          python build.py
+
+      - name: Build EXE (onedir)
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.onefile }}
+        shell: pwsh
+        run: |
+          python build.py --onedir
+
+      - name: 组装可分发 zip
+        shell: pwsh
+        run: |
+          $stage = "release_pkg/shp-buffer-tool"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          if (Test-Path "dist/shp-buffer-tool.exe") {
+            Copy-Item "dist/shp-buffer-tool.exe" $stage
+          }
+          if (Test-Path "dist/shp-buffer-tool" -PathType Container) {
+            Copy-Item "dist/shp-buffer-tool/*" $stage -Recurse -Force
+          }
+          Copy-Item "gui_config.example.yaml" $stage -Force
+          New-Item -ItemType Directory -Force -Path "$stage/shp_input" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/output" | Out-Null
+          # 占位 README，让用户拿到 zip 就知道放哪
+          $readme = @"
+          解压后双击 shp-buffer-tool.exe 即可使用。
+
+          目录说明：
+            shp-buffer-tool.exe        主程序
+            gui_config.example.yaml    配置示例（首次启动会自动复制为 gui_config.yaml）
+            shp_input/                 在这里放各省份 .shp 数据（按行政编码匹配）
+            output/                    结果 Excel 自动写到这里
+          "@
+          Set-Content -Path "$stage/使用说明.txt" -Value $readme -Encoding UTF8
+
+          $zipName = "shp-buffer-tool-windows.zip"
+          if (Test-Path $zipName) { Remove-Item $zipName }
+          Compress-Archive -Path "release_pkg/shp-buffer-tool" -DestinationPath $zipName
+          Get-ChildItem $zipName
+
+      - name: 上传 artifact (始终)
+        uses: actions/upload-artifact@v4
+        with:
+          name: shp-buffer-tool-windows
+          path: shp-buffer-tool-windows.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 发布 Release（仅 tag 触发）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: shp-buffer-tool-windows.zip
+          generate_release_notes: true

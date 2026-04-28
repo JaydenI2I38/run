@@ -190,6 +190,8 @@ def read_points(
     sheet_arg: int | str = sheet if sheet not in (None, "") else 0
     df = pd.read_excel(path, sheet_name=sheet_arg, dtype=object)
     log.info("读取 Excel %s，行数=%d，列=%s", path, len(df), list(df.columns))
+    if len(df) == 0:
+        raise ValueError(f"Excel 中没有任何数据行：{path}（sheet={sheet_arg}）")
 
     overrides = field_overrides or {}
     lng_col = _resolve_column(df, LNG_KEYS, overrides.get("longitude"))

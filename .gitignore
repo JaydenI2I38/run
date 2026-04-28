@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# PyInstaller 产物
+build/
+dist/
+*.spec
+
+# 用户运行产物
+gui_config.yaml
+shp_input/
+output/
+*.xlsx
+*.xls
+
+# 但保留示例
+!gui_config.example.yaml
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

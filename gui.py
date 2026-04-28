@@ -217,7 +217,7 @@ class App:
         self.run_btn = ttk.Button(actions, text="开始处理", command=self.run_task)
         self.run_btn.pack(side=tk.LEFT)
         ttk.Button(actions, text="编辑配置", command=self.open_config_file).pack(side=tk.LEFT, padx=8)
-        ttk.Label(actions, textvariable=tk.StringVar(value=f"配置文件：{self.config_path}"), foreground="#666").pack(side=tk.LEFT, padx=8)
+        ttk.Label(actions, text=f"配置文件：{self.config_path}", foreground="#666").pack(side=tk.LEFT, padx=8)
 
         self.progress = ttk.Progressbar(outer, orient="horizontal", mode="determinate", maximum=100)
         self.progress.pack(fill=tk.X)
