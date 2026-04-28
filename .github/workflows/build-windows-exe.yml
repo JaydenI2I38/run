@@ -2,8 +2,8 @@ name: Build Windows EXE
 
 # 触发条件：
 #   - 推送到 main / master 分支自动构建
-#   - 手动触发（workflow_dispatch）
 #   - 推送 v* 标签时构建并发布 Release
+#   - PR / 手动触发也会构建
 on:
   push:
     branches: [main, master]
@@ -20,6 +20,10 @@ on:
 
 permissions:
   contents: write
+
+env:
+  # 提前过渡到 Node 24，避免 deprecated 警告。
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
@@ -39,53 +43,84 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip list
 
       - name: Build EXE (onefile)
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.onefile }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           python build.py
 
       - name: Build EXE (onedir)
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.onefile }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           python build.py --onedir
+
+      - name: 失败时上传 PyInstaller 调试信息
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyinstaller-debug
+          path: |
+            build/**/warn-*.txt
+            build/**/xref-*.html
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 列出 dist 内容
+        shell: pwsh
+        run: |
+          if (Test-Path dist) {
+            Get-ChildItem -Recurse dist | Select-Object FullName, Length | Format-Table -AutoSize
+          } else {
+            Write-Host "::error::dist 目录不存在，build 步骤可能未产出任何文件"
+            exit 1
+          }
 
       - name: 组装可分发 zip
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $stage = "release_pkg/shp-buffer-tool"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          # onefile：dist/shp-buffer-tool.exe
           if (Test-Path "dist/shp-buffer-tool.exe") {
-            Copy-Item "dist/shp-buffer-tool.exe" $stage
+            Copy-Item "dist/shp-buffer-tool.exe" $stage -Force
           }
-          if (Test-Path "dist/shp-buffer-tool" -PathType Container) {
+          # onedir：dist/shp-buffer-tool/ 目录
+          if ((Test-Path "dist/shp-buffer-tool") -and ((Get-Item "dist/shp-buffer-tool").PSIsContainer)) {
             Copy-Item "dist/shp-buffer-tool/*" $stage -Recurse -Force
           }
+
           Copy-Item "gui_config.example.yaml" $stage -Force
           New-Item -ItemType Directory -Force -Path "$stage/shp_input" | Out-Null
           New-Item -ItemType Directory -Force -Path "$stage/output" | Out-Null
-          # 占位 README，让用户拿到 zip 就知道放哪
-          $readme = @"
-          解压后双击 shp-buffer-tool.exe 即可使用。
 
-          目录说明：
-            shp-buffer-tool.exe        主程序
-            gui_config.example.yaml    配置示例（首次启动会自动复制为 gui_config.yaml）
-            shp_input/                 在这里放各省份 .shp 数据（按行政编码匹配）
-            output/                    结果 Excel 自动写到这里
-          "@
-          Set-Content -Path "$stage/使用说明.txt" -Value $readme -Encoding UTF8
+          # 用数组 + Set-Content，避开 YAML 里 here-string 缩进的坑。
+          $readme = @(
+            '解压后双击 shp-buffer-tool.exe 即可使用。',
+            '',
+            '目录说明：',
+            '  shp-buffer-tool.exe        主程序',
+            '  gui_config.example.yaml    配置示例（首次启动会自动复制为 gui_config.yaml）',
+            '  shp_input/                 在这里放各省份 .shp 数据（按行政编码匹配）',
+            '  output/                    结果 Excel 自动写到这里'
+          ) -join "`r`n"
+          [System.IO.File]::WriteAllText("$stage/使用说明.txt", $readme + "`r`n", [System.Text.UTF8Encoding]::new($true))
 
           $zipName = "shp-buffer-tool-windows.zip"
           if (Test-Path $zipName) { Remove-Item $zipName }
-          Compress-Archive -Path "release_pkg/shp-buffer-tool" -DestinationPath $zipName
+          Compress-Archive -Path "release_pkg/shp-buffer-tool" -DestinationPath $zipName -Force
           Get-ChildItem $zipName
 
-      - name: 上传 artifact (始终)
+      - name: 上传 artifact
         uses: actions/upload-artifact@v4
         with:
           name: shp-buffer-tool-windows
