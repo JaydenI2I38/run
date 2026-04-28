@@ -1,0 +1,3 @@
+([('shp-buffer-tool',
+   '/Users/jayden/Desktop/channels/run/shp_buffer_tool/dist/shp-buffer-tool',
+   'EXECUTABLE')],)
