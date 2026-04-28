@@ -24,6 +24,9 @@ permissions:
 env:
   # 提前过渡到 Node 24，避免 deprecated 警告。
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # Windows runner 默认 stdout = cp1252，打印中文会 UnicodeEncodeError。
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
 
 jobs:
   build:

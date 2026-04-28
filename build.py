@@ -20,6 +20,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows 默认 stdout 是 cp1252（如 GitHub Actions runner），
+# 直接 print 中文会 UnicodeEncodeError；这里统一切到 UTF-8。
+for _stream_name in ("stdout", "stderr"):
+    _stream = getattr(sys, _stream_name, None)
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
+
 HERE = Path(__file__).resolve().parent
 APP_NAME = "shp-buffer-tool"
 ENTRY = HERE / "gui.py"
