@@ -139,9 +139,6 @@ def load_gui_config(path: str | Path) -> GuiToolConfig:
     except KeyError as e:
         raise ValueError(f"GUI 配置缺少必填字段: {e}") from e
 
-    if not provinces:
-        raise ValueError("GUI 配置中的 region.provinces 不能为空")
-
     return GuiToolConfig(
         shp_root_dir=shp_root_dir,
         output_dir=output_dir,
@@ -244,6 +241,16 @@ def find_matching_shp_paths(cfg: GuiToolConfig, province_code: str) -> list[Path
     return matches
 
 
+def find_all_shp_paths(cfg: GuiToolConfig) -> list[Path]:
+    root = Path(cfg.shp_root_dir).expanduser().resolve()
+    if not root.exists():
+        raise FileNotFoundError(f"shp 根目录不存在: {root}")
+    matches = sorted(root.rglob("*.shp"))
+    if not matches:
+        raise FileNotFoundError(f"未在 {root} 下找到任何 .shp 文件")
+    return matches
+
+
 def load_buffer_union(
     shp_paths: Iterable[str | Path], progress: ProgressLogger | None = None
 ):
@@ -319,8 +326,9 @@ def flag_points_in_buffer(
 def build_output_path(
     cfg: GuiToolConfig,
     excel_path: str | Path,
-    province: ProvinceItem,
     *,
+    shp_count: int,
+    province: ProvinceItem | None = None,
     output_dir_override: str | Path | None = None,
 ) -> Path:
     output_dir = Path(output_dir_override or cfg.output_dir).expanduser().resolve()
@@ -328,8 +336,9 @@ def build_output_path(
     excel_stem = Path(excel_path).stem
     filename = cfg.output_name_template.format(
         excel_stem=excel_stem,
-        province_code=province.code,
-        province_name=province.name,
+        province_code=province.code if province else "ALL",
+        province_name=province.name if province else "ALL",
+        shp_count=shp_count,
     )
     return output_dir / filename
 
@@ -359,7 +368,11 @@ def process_excel_with_province(
     flag = flag_points_in_buffer(point_input.coords, buffer_geom, progress)
 
     output_path = build_output_path(
-        cfg, excel_path, province, output_dir_override=output_dir_override
+        cfg,
+        excel_path,
+        shp_count=len(shp_paths),
+        province=province,
+        output_dir_override=output_dir_override,
     )
     progress.emit("开始写出 Excel", 92)
     result_df = point_input.df.copy()
@@ -373,6 +386,55 @@ def process_excel_with_province(
     return RunResult(
         province_code=province.code,
         province_name=province.name,
+        shp_paths=shp_paths,
+        output_path=output_path,
+        total_rows=len(result_df),
+        hit_count=hit_count,
+    )
+
+
+def process_excel_with_all_shp(
+    cfg: GuiToolConfig,
+    excel_path: str | Path,
+    *,
+    sheet: int | str = 0,
+    field_overrides: dict[str, str] | None = None,
+    output_dir_override: str | Path | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> RunResult:
+    progress = ProgressLogger(progress_callback)
+    progress.emit("开始扫描 shp 目录", 0)
+    shp_paths = find_all_shp_paths(cfg)
+    progress.emit(f"共找到 {len(shp_paths)} 个 shp", 5)
+
+    progress.emit("开始读取 Excel", 8)
+    point_input = read_points(
+        excel_path, sheet=sheet, field_overrides=field_overrides
+    )
+    progress.emit(f"Excel 读取完成，共 {len(point_input.df)} 行", 10)
+
+    buffer_geom = load_buffer_union(shp_paths, progress)
+    flag = flag_points_in_buffer(point_input.coords, buffer_geom, progress)
+
+    output_path = build_output_path(
+        cfg,
+        excel_path,
+        shp_count=len(shp_paths),
+        province=None,
+        output_dir_override=output_dir_override,
+    )
+    progress.emit("开始写出 Excel", 92)
+    result_df = point_input.df.copy()
+    result_df[cfg.flag_column] = flag.astype(bool)
+    result_df.to_excel(output_path, index=False)
+
+    hit_count = int(flag.sum())
+    progress.emit(
+        f"完成，命中 {hit_count}/{len(result_df)}，输出：{output_path}", 100
+    )
+    return RunResult(
+        province_code="ALL",
+        province_name="全部shp",
         shp_paths=shp_paths,
         output_path=output_path,
         total_rows=len(result_df),

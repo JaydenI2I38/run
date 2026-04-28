@@ -21,22 +21,18 @@ from tkinter import filedialog, messagebox, ttk
 try:
     from service import (  # type: ignore
         GuiToolConfig,
-        ProvinceItem,
         app_base_dir,
-        find_matching_shp_paths,
-        list_provinces,
+        find_all_shp_paths,
         load_gui_config,
-        process_excel_with_province,
+        process_excel_with_all_shp,
     )
 except ImportError:
     from shp_buffer_tool.service import (  # type: ignore
         GuiToolConfig,
-        ProvinceItem,
         app_base_dir,
-        find_matching_shp_paths,
-        list_provinces,
+        find_all_shp_paths,
         load_gui_config,
-        process_excel_with_province,
+        process_excel_with_all_shp,
     )
 
 
@@ -115,21 +111,17 @@ class App:
         self.root.minsize(820, 640)
         self.config_path = config_path
         self.cfg: GuiToolConfig = load_gui_config(config_path)
-        self.provinces: list[ProvinceItem] = list_provinces(self.cfg)
 
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.running = False
 
         # 表单变量
         self.var_excel = tk.StringVar()
-        self.var_province = tk.StringVar()
         self.var_shp_root = tk.StringVar(value=str(self.cfg.shp_root_dir))
         self.var_output_dir = tk.StringVar(value=str(self.cfg.output_dir))
         self.var_sheet = tk.StringVar(value="0")
         self.var_col_lng = tk.StringVar(value="")
         self.var_col_lat = tk.StringVar(value="")
-        if self.provinces:
-            self.var_province.set(self.provinces[0].label)
 
         self._setup_logging()
         self._build_ui()
@@ -184,18 +176,15 @@ class App:
         for col in (1, 3):
             params.columnconfigure(col, weight=1)
 
-        ttk.Label(params, text="省份").grid(row=0, column=0, sticky=tk.W, padx=8, pady=6)
-        province_values = [p.label for p in self.provinces]
-        self.province_box = ttk.Combobox(
+        ttk.Label(params, text="shp 范围").grid(row=0, column=0, sticky=tk.W, padx=8, pady=6)
+        ttk.Label(
             params,
-            textvariable=self.var_province,
-            values=province_values,
-            state="readonly",
-            width=28,
+            text="自动读取根目录下全部 .shp",
+            foreground="#666",
+        ).grid(row=0, column=1, columnspan=2, sticky=tk.W, padx=4, pady=6)
+        ttk.Button(params, text="刷新 shp 列表", command=self.refresh_shp_preview).grid(
+            row=0, column=3, padx=8, sticky=tk.E
         )
-        self.province_box.grid(row=0, column=1, sticky=tk.W, padx=4, pady=6)
-        self.province_box.bind("<<ComboboxSelected>>", lambda _e: self.refresh_shp_preview())
-        ttk.Button(params, text="刷新 shp 匹配", command=self.refresh_shp_preview).grid(row=0, column=2, padx=8)
 
         ttk.Label(params, text="Sheet").grid(row=1, column=0, sticky=tk.W, padx=8, pady=6)
         ttk.Entry(params, textvariable=self.var_sheet, width=18).grid(row=1, column=1, sticky=tk.W, padx=4, pady=6)
@@ -223,7 +212,7 @@ class App:
         self.progress.pack(fill=tk.X)
 
         # --- 预览 ---
-        preview_frame = ttk.LabelFrame(outer, text="当前省份匹配到的 shp")
+        preview_frame = ttk.LabelFrame(outer, text="当前目录下全部 shp")
         preview_frame.pack(fill=tk.X, pady=(10, 6))
         self.preview_summary = tk.StringVar(value="尚未匹配")
         ttk.Label(preview_frame, textvariable=self.preview_summary).pack(anchor=tk.W, padx=8, pady=(8, 4))
@@ -276,15 +265,8 @@ class App:
         except Exception as e:  # noqa: BLE001
             messagebox.showwarning("提示", f"无法打开 {target}\n{e}")
 
-    def _selected_province(self) -> ProvinceItem:
-        label = self.var_province.get().strip()
-        for item in self.provinces:
-            if label == item.label:
-                return item
-        raise ValueError("请先选择省份")
-
     def _apply_overrides_to_cfg(self) -> None:
-        """把 GUI 上的 shp 根目录覆盖到 cfg，便于 find_matching_shp_paths 使用。"""
+        """把 GUI 上的 shp 根目录覆盖到 cfg，便于 find_all_shp_paths 使用。"""
         shp_root = self.var_shp_root.get().strip()
         if shp_root:
             self.cfg.shp_root_dir = Path(shp_root).expanduser().resolve()
@@ -293,10 +275,9 @@ class App:
         self.preview_list.delete("1.0", tk.END)
         try:
             self._apply_overrides_to_cfg()
-            province = self._selected_province()
-            matches = find_matching_shp_paths(self.cfg, province.code)
+            matches = find_all_shp_paths(self.cfg)
             self.preview_summary.set(
-                f"共匹配到 {len(matches)} 个 shp（根目录：{self.cfg.shp_root_dir}）"
+                f"共找到 {len(matches)} 个 shp（根目录：{self.cfg.shp_root_dir}）"
             )
             for path in matches:
                 self.preview_list.insert(tk.END, str(path) + "\n")
@@ -312,11 +293,6 @@ class App:
         excel_path = self.var_excel.get().strip()
         if not excel_path:
             messagebox.showerror("错误", "请先选择 Excel 文件")
-            return
-        try:
-            province = self._selected_province()
-        except ValueError as e:
-            messagebox.showerror("错误", str(e))
             return
 
         self._apply_overrides_to_cfg()
@@ -344,23 +320,21 @@ class App:
 
         worker = threading.Thread(
             target=self._worker_run,
-            args=(province, excel_path, sheet, overrides, output_dir),
+            args=(excel_path, sheet, overrides, output_dir),
             daemon=True,
         )
         worker.start()
 
     def _worker_run(
         self,
-        province: ProvinceItem,
         excel_path: str,
         sheet: int | str,
         overrides: dict[str, str],
         output_dir: str,
     ) -> None:
         try:
-            result = process_excel_with_province(
+            result = process_excel_with_all_shp(
                 self.cfg,
-                province,
                 excel_path,
                 sheet=sheet,
                 field_overrides=overrides or None,

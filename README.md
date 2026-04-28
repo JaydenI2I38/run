@@ -8,7 +8,7 @@
 
 ## 特性
 
-- tkinter GUI：选 Excel + 选省份 + 一键执行；按行政编码自动匹配多份 shp 合并判定。
+- tkinter GUI：选 Excel 后一键执行；自动读取 shp 根目录下全部 `.shp` 合并判定。
 - 自包含：PyInstaller 直接打包不需要 `--paths ..` 之类的耦合。
 - 配置外置：`gui_config.yaml` 与 exe 同目录；首次启动若不存在会自动从
   `gui_config.example.yaml` 复制一份。
@@ -69,7 +69,7 @@ build_exe.bat
 ```
 shp-buffer-tool.exe
 gui_config.example.yaml
-shp_input/        # 放各省 .shp 数据（按行政编码匹配）
+shp_input/        # 放各省 .shp 数据（会递归读取全部 .shp）
 output/           # 结果 Excel 会写到这里（不存在会自动建）
 ```
 
@@ -79,7 +79,7 @@ output/           # 结果 Excel 会写到这里（不存在会自动建）
 
 - shp 根目录、Excel 文件、输出目录（按钮选择，不用动 yaml）。
 - Sheet（序号或名称）、经度列名、纬度列名（留空时自动识别）。
-- 省份下拉（来自 yaml 的 `region.provinces`）。
+- 自动读取当前 `shp` 根目录下全部 `.shp`（不用再选省份）。
 
 ## 不打包，直接源码运行
 
@@ -91,12 +91,11 @@ cd shp_buffer_tool
 ## 作为模块在代码里调用
 
 ```python
-from service import load_gui_config, process_excel_with_province
+from service import load_gui_config, process_excel_with_all_shp
 
 cfg = load_gui_config("gui_config.yaml")
-province = cfg.find_province("湖北省")
-result = process_excel_with_province(
-    cfg, province, "/path/to/points.xlsx",
+result = process_excel_with_all_shp(
+    cfg, "/path/to/points.xlsx",
     sheet=0,
     field_overrides={"longitude": "经度", "latitude": "纬度"},
 )
